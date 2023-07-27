@@ -1,4 +1,4 @@
-/* Copyright (C) 2017-2018 Tal Aloni <tal.aloni.il@gmail.com>. All rights reserved.
+/* Copyright (C) 2017-2023 Tal Aloni <tal.aloni.il@gmail.com>. All rights reserved.
  * 
  * You can redistribute this program and/or modify it under the terms of
  * the GNU Lesser Public License as published by the Free Software Foundation,
@@ -15,7 +15,7 @@ namespace SMBLibrary.Client
 {
     public class NTLMAuthenticationHelper
     {
-        public static byte[] GetNegotiateMessage(byte[] securityBlob, string domainName, AuthenticationMethod authenticationMethod)
+        public static byte[] GetNegotiateMessage(byte[] securityBlob, string domainName, string userName, string password, AuthenticationMethod authenticationMethod)
         {
             bool useGSSAPI = false;
             if (securityBlob.Length > 0)
@@ -46,8 +46,12 @@ namespace SMBLibrary.Client
                                               NegotiateFlags.AlwaysSign |
                                               NegotiateFlags.Version |
                                               NegotiateFlags.Use128BitEncryption |
-                                              NegotiateFlags.KeyExchange |
                                               NegotiateFlags.Use56BitEncryption;
+
+            if (!(userName == String.Empty && password == String.Empty))
+            {
+                negotiateMessage.NegotiateFlags |= NegotiateFlags.KeyExchange;
+            }
 
             if (authenticationMethod == AuthenticationMethod.NTLMv1)
             {
@@ -139,12 +143,23 @@ namespace SMBLibrary.Client
                 authenticateMessage.NegotiateFlags |= NegotiateFlags.ExtendedSessionSecurity;
             }
 
+            if (userName == String.Empty && password == String.Empty)
+            {
+                authenticateMessage.NegotiateFlags |= NegotiateFlags.Anonymous;
+            }
+
             authenticateMessage.UserName = userName;
             authenticateMessage.DomainName = domainName;
             authenticateMessage.WorkStation = Environment.MachineName;
             byte[] sessionBaseKey;
-            byte[] keyExchangeKey;
-            if (authenticationMethod == AuthenticationMethod.NTLMv1 || authenticationMethod == AuthenticationMethod.NTLMv1ExtendedSessionSecurity)
+            byte[] keyExchangeKey = null;
+            if (userName == String.Empty && password == String.Empty)
+            {
+                // https://msdn.microsoft.com/en-us/library/cc236700.aspx
+                authenticateMessage.LmChallengeResponse = new byte[1];
+                authenticateMessage.NtChallengeResponse = new byte[0];
+            }
+            else if (authenticationMethod == AuthenticationMethod.NTLMv1 || authenticationMethod == AuthenticationMethod.NTLMv1ExtendedSessionSecurity)
             {
                 if (authenticationMethod == AuthenticationMethod.NTLMv1)
                 {
