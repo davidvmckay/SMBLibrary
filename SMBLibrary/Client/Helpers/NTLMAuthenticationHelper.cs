@@ -152,7 +152,8 @@ namespace SMBLibrary.Client
             authenticateMessage.DomainName = domainName;
             authenticateMessage.WorkStation = Environment.MachineName;
             byte[] sessionBaseKey;
-            byte[] keyExchangeKey = null;
+            byte[] keyExchangeKey;
+            byte[] ntProofStr = null;
             if (userName == String.Empty && password == String.Empty)
             {
                 // https://msdn.microsoft.com/en-us/library/cc236700.aspx
@@ -171,6 +172,19 @@ namespace SMBLibrary.Client
                     authenticateMessage.LmChallengeResponse = ByteUtils.Concatenate(clientChallenge, new byte[16]);
                     authenticateMessage.NtChallengeResponse = NTLMCryptography.ComputeNTLMv1ExtendedSessionSecurityResponse(challengeMessage.ServerChallenge, clientChallenge, password);
                 }
+            }
+            else // NTLMv2
+            {
+                NTLMv2ClientChallenge clientChallengeStructure = new NTLMv2ClientChallenge(time, clientChallenge, challengeMessage.TargetInfo, spn);
+                byte[] clientChallengeStructurePadded = clientChallengeStructure.GetBytesPadded();
+                ntProofStr = NTLMCryptography.ComputeNTLMv2Proof(challengeMessage.ServerChallenge, clientChallengeStructurePadded, password, userName, domainName);
+
+                authenticateMessage.LmChallengeResponse = NTLMCryptography.ComputeLMv2Response(challengeMessage.ServerChallenge, clientChallenge, password, userName, challengeMessage.TargetName);
+                authenticateMessage.NtChallengeResponse = ByteUtils.Concatenate(ntProofStr, clientChallengeStructurePadded);
+            }
+
+            if (authenticationMethod == AuthenticationMethod.NTLMv1 || authenticationMethod == AuthenticationMethod.NTLMv1ExtendedSessionSecurity)
+            {
                 // https://msdn.microsoft.com/en-us/library/cc236699.aspx
                 sessionBaseKey = new MD4().GetByteHashFromBytes(NTLMCryptography.NTOWFv1(password));
                 byte[] lmowf = NTLMCryptography.LMOWFv1(password);
@@ -178,13 +192,6 @@ namespace SMBLibrary.Client
             }
             else // NTLMv2
             {
-                NTLMv2ClientChallenge clientChallengeStructure = new NTLMv2ClientChallenge(time, clientChallenge, challengeMessage.TargetInfo, spn);
-                byte[] clientChallengeStructurePadded = clientChallengeStructure.GetBytesPadded();
-                byte[] ntProofStr = NTLMCryptography.ComputeNTLMv2Proof(challengeMessage.ServerChallenge, clientChallengeStructurePadded, password, userName, domainName);
-
-                authenticateMessage.LmChallengeResponse = NTLMCryptography.ComputeLMv2Response(challengeMessage.ServerChallenge, clientChallenge, password, userName, challengeMessage.TargetName);
-                authenticateMessage.NtChallengeResponse = ByteUtils.Concatenate(ntProofStr, clientChallengeStructurePadded);
-
                 // https://msdn.microsoft.com/en-us/library/cc236700.aspx
                 byte[] responseKeyNT = NTLMCryptography.NTOWFv2(password, userName, domainName);
                 sessionBaseKey = new HMACMD5(responseKeyNT).ComputeHash(ntProofStr);
